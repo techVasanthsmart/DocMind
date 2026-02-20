@@ -95,7 +95,7 @@ export default function MetricsDashboard({ metrics }: MetricsDashboardProps) {
       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
         Evaluation Metrics
       </h4>
-      <div className="flex items-center justify-around gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-4">
         <CircularProgress
           value={metrics.faithfulness}
           label="Faithfulness"
