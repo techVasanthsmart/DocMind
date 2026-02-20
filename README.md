@@ -1,11 +1,14 @@
-# DocuMind - RAG Chat Application
+# DocMind - RAG Chat Application
 
 ![Next.js](https://img.shields.io/badge/Next.js-15-black)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.0-blue)
 ![LangChain](https://img.shields.io/badge/LangChain-Integration-green)
 ![OpenAI](https://img.shields.io/badge/OpenAI-Powered-purple)
+![Open Source](https://img.shields.io/badge/Open_Source-Yes-orange)
+![No Login](https://img.shields.io/badge/No_Login_Required-Yes-teal)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Visit_Now-success)](https://docmind.vercel.app)
 
-**DocuMind** is a cutting-edge Retrieval-Augmented Generation (RAG) agent capable of ingesting websites and enabling users to chat with their content in real-time. Built with a focus on accuracy, performance, and a premium user experience.
+**DocMind** is a cutting-edge Retrieval-Augmented Generation (RAG) agent capable of ingesting websites and enabling users to chat with their content in real-time. Built with a focus on accuracy, performance, and a premium user experience.
 
 ## 🚀 Features
 
@@ -50,8 +53,8 @@ The application follows a streamlined RAG pipeline:
 1.  **Clone the repository**
 
     ```bash
-    git clone https://github.com/techVasanthsmart/RAG-First-Try.git
-    cd RAG-First-Try
+    git clone https://github.com/techVasanthsmart/DocMind.git
+    cd DocMind
     ```
 
 2.  **Install dependencies**
@@ -84,7 +87,7 @@ The application follows a streamlined RAG pipeline:
 
 We are constantly evolving! Here are some names we define this project by:
 
-1.  **DocuMind** (Current)
+1.  **DocMind** (Current)
 2.  **ChatStream RAG**
 3.  **IntellectFlow**
 4.  **Synapse AI**

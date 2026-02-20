@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Bot, User, Sparkles } from "lucide-react";
+import { Send, Loader2, Bot, User } from "lucide-react";
 import Sidebar from "./Sidebar";
 import { Metrics } from "./MetricsDashboard";
 import { Source } from "./SourcePanel";
+import { Logo } from "./Logo";
 
 interface Message {
   role: "user" | "assistant";
@@ -86,17 +87,7 @@ export default function ChatInterface({
         <div className="bg-white/70 backdrop-blur-lg border-b border-white/60 px-6 py-4 shadow-sm z-10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900">
-                  RAG Chat
-                </h2>
-                <p className="text-xs text-gray-500 truncate max-w-[200px] sm:max-w-xs">
-                  {ingestedUrl}
-                </p>
-              </div>
+              <Logo className="w-8 h-8" textSize="text-lg" />
             </div>
             <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
