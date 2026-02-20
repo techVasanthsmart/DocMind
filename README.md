@@ -6,7 +6,7 @@
 ![OpenAI](https://img.shields.io/badge/OpenAI-Powered-purple)
 ![Open Source](https://img.shields.io/badge/Open_Source-Yes-orange)
 ![No Login](https://img.shields.io/badge/No_Login_Required-Yes-teal)
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Visit_Now-success)](https://docmind.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Visit_Now-success)](https://docmind.vasanthubs.co.in)
 
 **DocMind** is a cutting-edge Retrieval-Augmented Generation (RAG) agent capable of ingesting websites and enabling users to chat with their content in real-time. Built by **Vasanth Kumar** with a focus on accuracy, performance, and a premium user experience.
 
