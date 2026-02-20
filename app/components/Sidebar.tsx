@@ -29,23 +29,21 @@ export default function Sidebar({ metrics, sources }: SidebarProps) {
   }
 
   return (
-    <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl overflow-y-auto hidden lg:block scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-      <div className="flex flex-col">
-        {metrics && (
-          <div className="sticky top-0 z-20 p-4 pb-2 bg-white/80 backdrop-blur-xl border-b border-white/20">
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <MetricsDashboard metrics={metrics} />
-            </div>
+    <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl hidden lg:flex flex-col min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+      {metrics && (
+        <div className="p-4 pb-3 bg-white/80 backdrop-blur-xl border-b border-white/20">
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <MetricsDashboard metrics={metrics} />
           </div>
-        )}
-        {sources && (
-          <div className="p-4 pt-4 space-y-4">
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-              <SourcePanel sources={sources} />
-            </div>
+        </div>
+      )}
+      {sources && (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+            <SourcePanel sources={sources} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

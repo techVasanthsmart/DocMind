@@ -13,7 +13,11 @@ export default function Home() {
   } | null>(null);
 
   return (
-    <main className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/40">
+    <main
+      className={`relative bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/40 ${
+        ingested ? "h-[100svh] overflow-hidden" : "min-h-screen overflow-hidden"
+      }`}
+    >
       {/* Animated background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-200/40 rounded-full blur-3xl animate-float" />
@@ -21,7 +25,7 @@ export default function Home() {
         <div className="absolute bottom-20 right-1/4 w-64 h-64 bg-pink-200/30 rounded-full blur-3xl animate-float-slow" />
       </div>
 
-      <div className="relative z-10 px-4 py-8">
+      <div className={`relative z-10 ${ingested ? "h-full p-4" : "px-4 py-8"}`}>
         {!ingested ? (
           <div className="flex flex-col items-center justify-center min-h-[80vh] space-y-12">
             {/* Hero */}
@@ -73,10 +77,13 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          <ChatInterface
-            ingestedUrl={ingested.url}
-            chunkCount={ingested.chunkCount}
-          />
+          <div className="h-full min-h-0 max-w-none mx-auto">
+            <ChatInterface
+              ingestedUrl={ingested.url}
+              chunkCount={ingested.chunkCount}
+              onReset={() => setIngested(null)}
+            />
+          </div>
         )}
       </div>
     </main>

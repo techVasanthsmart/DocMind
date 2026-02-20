@@ -5,6 +5,7 @@ let vectorStoreInstance: MemoryVectorStore | null = null;
 let isReady = false;
 let ingestedUrl = "";
 let documentCount = 0;
+let suggestionContext = "";
 
 const embeddings = new OpenAIEmbeddings({
   modelName: "text-embedding-3-small",
@@ -25,6 +26,7 @@ export function resetStore() {
   isReady = false;
   ingestedUrl = "";
   documentCount = 0;
+  suggestionContext = "";
 }
 
 export function isStoreReady(): boolean {
@@ -49,4 +51,12 @@ export function setDocumentCount(count: number) {
 
 export function getDocumentCount(): number {
   return documentCount;
+}
+
+export function setSuggestionContext(context: string) {
+  suggestionContext = context;
+}
+
+export function getSuggestionContext(): string {
+  return suggestionContext;
 }

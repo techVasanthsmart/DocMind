@@ -2,15 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { MemoryVectorStore } from "@/lib/MemoryVectorStore";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   getEmbeddings,
   setStore,
   setIngestedUrl,
   setDocumentCount,
   resetStore,
+  setSuggestionContext,
 } from "@/lib/vectorStore";
 
 export const runtime = "nodejs";
+
+const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+function resolveChromiumBrotliDir(): string | undefined {
+  const configuredDir = process.env.CHROMIUM_BROTLI_DIR?.trim();
+  if (configuredDir && existsSync(configuredDir)) {
+    return configuredDir;
+  }
+
+  const nodeModulesDir = join(
+    process.cwd(),
+    "node_modules",
+    "@sparticuz",
+    "chromium",
+    "bin"
+  );
+  if (existsSync(nodeModulesDir)) {
+    return nodeModulesDir;
+  }
+
+  const nextModulesScopeDir = join(
+    process.cwd(),
+    ".next",
+    "node_modules",
+    "@sparticuz"
+  );
+  if (existsSync(nextModulesScopeDir)) {
+    for (const entry of readdirSync(nextModulesScopeDir)) {
+      if (!entry.startsWith("chromium")) {
+        continue;
+      }
+
+      const candidate = join(nextModulesScopeDir, entry, "bin");
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,30 +87,27 @@ export async function POST(request: NextRequest) {
 
         try {
           sendStep("Initializing LangChain pipeline...");
-          
+
           // Reset previous store
           resetStore();
 
-          // Conditional browser launch
-          let browser;
-          let executablePath;
+          let executablePath: string | undefined;
+          let args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            `--user-agent=${DEFAULT_USER_AGENT}`,
+          ];
+          let headless: boolean | "shell" = true;
 
           if (process.env.NODE_ENV === "production") {
             const chromium = await import("@sparticuz/chromium").then(
               (mod) => mod.default
             );
-            const puppeteerCore = await import("puppeteer-core").then(
-              (mod) => mod.default
-            );
+            const chromiumBrotliDir = resolveChromiumBrotliDir();
 
-            executablePath = await chromium.executablePath();
-
-            browser = await puppeteerCore.launch({
-              args: chromium.args,
-              defaultViewport: { width: 1920, height: 1080 },
-              executablePath,
-              headless: true,
-            });
+            executablePath = await chromium.executablePath(chromiumBrotliDir);
+            args = [...chromium.args, `--user-agent=${DEFAULT_USER_AGENT}`];
+            headless = "shell";
           }
 
           sendStep("Connecting to headless browser...");
@@ -73,12 +115,8 @@ export async function POST(request: NextRequest) {
           // Load the webpage using Puppeteer
           const loader = new PuppeteerWebBaseLoader(url, {
             launchOptions: {
-              headless: true,
-              args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-              ],
+              headless,
+              args,
               executablePath,
             },
             gotoOptions: {
@@ -88,7 +126,6 @@ export async function POST(request: NextRequest) {
 
           sendStep("Scraping DOM elements via Puppeteer selectors...");
           const docs = await loader.load();
-          if (browser) await browser.close();
 
           if (docs.length === 0) {
             throw new Error("Could not extract content from this URL");
@@ -96,7 +133,7 @@ export async function POST(request: NextRequest) {
 
           sendStep("Cleaning text & removing whitespace noise...");
           // Basic cleaning is implicitly done by loader, but we can simulate/add more if needed
-          
+
           sendStep("Splitting documents via RecursiveCharacterTextSplitter...");
           const textSplitter = new RecursiveCharacterTextSplitter({
             chunkSize: 1000,
@@ -106,14 +143,20 @@ export async function POST(request: NextRequest) {
 
           sendStep(`Chunk stats: ~1000 tokens/chunk, 200 overlap...`);
 
+          // Cache a small snippet of the ingested text so we can generate
+          // content-aware suggestion prompts without re-scraping.
+          setSuggestionContext(
+            splitDocs
+              .slice(0, 8)
+              .map((d) => d.pageContent)
+              .join("\n\n")
+              .slice(0, 8000)
+          );
+
           sendStep("Generating OpenAI Embeddings (text-embedding-3-small, 1024-dim)...");
           const embeddings = getEmbeddings();
 
-          sendStep("Initializing Memory Vector Store..."); 
-          // Note: We are using MemoryVectorStore here as per original code, but the status message requested Pinecone. 
-          // I will keep the message as requested for the UI effect, even if implementation is MemoryVectorStore for now 
-          // (or maybe it was Pinecone in user's mind? The code says MemoryVectorStore). 
-          // I'll stick to the requested text.
+          sendStep("Initializing Memory Vector Store...");
 
           sendStep("Upserting vectors batch...");
           const vectorStore = await MemoryVectorStore.fromDocuments(
