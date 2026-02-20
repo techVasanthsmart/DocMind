@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
-import { getStore, isStoreReady } from "@/lib/vectorStore";
+import { isStoreReady, similaritySearchWithScore } from "@/lib/vectorStore";
 import { computeMetrics } from "@/lib/evaluator";
 import { Document } from "@langchain/core/documents";
+import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
 
 const llm = new ChatOpenAI({
   modelName: "gpt-4o-mini",
@@ -12,6 +13,7 @@ const llm = new ChatOpenAI({
 
 export async function POST(request: NextRequest) {
   try {
+    const { sessionId, isNew } = getOrCreateSessionId(request);
     const { question } = await request.json();
 
     if (!question || typeof question !== "string") {
@@ -21,20 +23,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isStoreReady()) {
+    if (!isStoreReady(sessionId)) {
       return NextResponse.json(
         { error: "No documents indexed yet. Please ingest a URL first." },
         { status: 400 }
       );
     }
 
-    const store = getStore()!;
-
     // Retrieve relevant chunks with scores
-    const resultsWithScores = await store.similaritySearchWithScore(
-      question,
-      4
-    );
+    const resultsWithScores = await similaritySearchWithScore(sessionId, question, 4);
 
     const chunks: Document[] = resultsWithScores.map(([doc]) => doc);
     const scores: number[] = resultsWithScores.map(([, score]) =>
@@ -62,13 +59,13 @@ CONTEXT:
 ${context}`;
 
     // Generate response
-    const response = await llm.invoke([
+    const llmResponse = await llm.invoke([
       { role: "system", content: systemPrompt },
       { role: "user", content: question },
     ]);
 
     const answer =
-      typeof response.content === "string" ? response.content : "";
+      typeof llmResponse.content === "string" ? llmResponse.content : "";
 
     // Compute evaluation metrics
     const metrics = await computeMetrics(answer, chunks, scores);
@@ -81,12 +78,18 @@ ${context}`;
       similarity: Math.round(scores[i] * 100),
     }));
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       answer,
       sources,
       metrics,
       timestamp: new Date().toISOString(),
     });
+
+    if (isNew) {
+      setSessionCookie(response, sessionId);
+    }
+
+    return response;
   } catch (error: unknown) {
     console.error("Chat error:", error);
     const message =

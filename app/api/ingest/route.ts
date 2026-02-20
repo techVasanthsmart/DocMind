@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { MemoryVectorStore } from "@/lib/MemoryVectorStore";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   getEmbeddings,
-  setStore,
-  setIngestedUrl,
-  setDocumentCount,
   resetStore,
-  setSuggestionContext,
+  indexDocuments,
 } from "@/lib/vectorStore";
+import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -59,6 +56,7 @@ function resolveChromiumBrotliDir(): string | undefined {
 
 export async function POST(request: NextRequest) {
   try {
+    const { sessionId, isNew } = getOrCreateSessionId(request);
     const { url } = await request.json();
 
     if (!url || typeof url !== "string") {
@@ -88,8 +86,8 @@ export async function POST(request: NextRequest) {
         try {
           sendStep("Initializing LangChain pipeline...");
 
-          // Reset previous store
-          resetStore();
+          // Reset previous session store
+          await resetStore(sessionId);
 
           let executablePath: string | undefined;
           let args = [
@@ -143,31 +141,15 @@ export async function POST(request: NextRequest) {
 
           sendStep(`Chunk stats: ~1000 tokens/chunk, 200 overlap...`);
 
-          // Cache a small snippet of the ingested text so we can generate
-          // content-aware suggestion prompts without re-scraping.
-          setSuggestionContext(
-            splitDocs
-              .slice(0, 8)
-              .map((d) => d.pageContent)
-              .join("\n\n")
-              .slice(0, 8000)
-          );
+          sendStep("Generating OpenAI Embeddings (text-embedding-3-small)...");
+          // Force init embeddings early so errors surface in-step.
+          getEmbeddings();
 
-          sendStep("Generating OpenAI Embeddings (text-embedding-3-small, 1024-dim)...");
-          const embeddings = getEmbeddings();
-
-          sendStep("Initializing Memory Vector Store...");
-
-          sendStep("Upserting vectors batch...");
-          const vectorStore = await MemoryVectorStore.fromDocuments(
-            splitDocs,
-            embeddings
-          );
-
-          // Store globally
-          setStore(vectorStore);
-          setIngestedUrl(url);
-          setDocumentCount(splitDocs.length);
+          sendStep("Upserting vectors (Pinecone, session namespace)...");
+          const { provider } = await indexDocuments(sessionId, url, splitDocs);
+          if (provider === "memory") {
+            sendStep("Pinecone unavailable; using in-memory vectors for this session...");
+          }
 
           sendStep("Success. Hydrating context window...");
 
@@ -195,11 +177,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return new NextResponse(stream, {
+    const response = new NextResponse(stream, {
       headers: {
         "Content-Type": "application/json",
       },
     });
+
+    if (isNew) {
+      setSessionCookie(response, sessionId);
+    }
+
+    return response;
   } catch (error: unknown) {
     console.error("Ingest setup error:", error);
     const message =

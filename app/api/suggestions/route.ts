@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   getIngestedUrl,
   getSuggestionContext,
   isStoreReady,
 } from "@/lib/vectorStore";
+import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -31,19 +32,28 @@ function fallbackSuggestions(url: string): string[] {
   ];
 }
 
-export async function GET() {
-  const url = getIngestedUrl();
+export async function GET(request: NextRequest) {
+  const { sessionId, isNew } = getOrCreateSessionId(request);
+  const url = getIngestedUrl(sessionId);
   if (!url) {
-    return NextResponse.json({ suggestions: fallbackSuggestions("this site") });
+    const response = NextResponse.json({
+      suggestions: fallbackSuggestions("this site"),
+    });
+    if (isNew) setSessionCookie(response, sessionId);
+    return response;
   }
 
-  if (!isStoreReady()) {
-    return NextResponse.json({ suggestions: fallbackSuggestions(url) });
+  if (!isStoreReady(sessionId)) {
+    const response = NextResponse.json({ suggestions: fallbackSuggestions(url) });
+    if (isNew) setSessionCookie(response, sessionId);
+    return response;
   }
 
-  const context = getSuggestionContext().trim();
+  const context = getSuggestionContext(sessionId).trim();
   if (!context) {
-    return NextResponse.json({ suggestions: fallbackSuggestions(url) });
+    const response = NextResponse.json({ suggestions: fallbackSuggestions(url) });
+    if (isNew) setSessionCookie(response, sessionId);
+    return response;
   }
 
   try {
@@ -74,12 +84,15 @@ Return EXACTLY a JSON array of 4 short questions (strings). Rules:
       parsed.length >= 4 &&
       parsed.every((s) => typeof s === "string" && s.trim().length > 0)
     ) {
-      return NextResponse.json({ suggestions: parsed.slice(0, 4) });
+      const response = NextResponse.json({ suggestions: parsed.slice(0, 4) });
+      if (isNew) setSessionCookie(response, sessionId);
+      return response;
     }
   } catch (e) {
     console.error("Suggestions error:", e);
   }
 
-  return NextResponse.json({ suggestions: fallbackSuggestions(url) });
+  const response = NextResponse.json({ suggestions: fallbackSuggestions(url) });
+  if (isNew) setSessionCookie(response, sessionId);
+  return response;
 }
-

@@ -46,13 +46,16 @@ export default function URLInput({ onIngested }: URLInputProps) {
       if (!reader) throw new Error("Failed to start stream");
 
       const decoder = new TextDecoder();
+      let buffer = "";
       
       while (true) {
         const { done, value } = await reader.read();
         
         if (value) {
-            const text = decoder.decode(value);
-            const lines = text.split("\n").filter(line => line.trim() !== "");
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n");
+            buffer = parts.pop() ?? "";
+            const lines = parts.filter(line => line.trim() !== "");
             
             for (const line of lines) {
                 try {
@@ -74,7 +77,10 @@ export default function URLInput({ onIngested }: URLInputProps) {
                         return; // Done
                     }
                     if (data.error) {
-                        throw new Error(data.error);
+                        setError(data.error);
+                        setLoading(false);
+                        await reader.cancel();
+                        return;
                     }
                 } catch (e) {
                    if (e instanceof Error && e.message !== "Unexpected end of JSON input") {
