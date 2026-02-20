@@ -3,6 +3,7 @@ import { Github, Linkedin } from "lucide-react";
 
 const GITHUB_URL = "https://github.com/techVasanthsmart/DocMind";
 const LINKEDIN_URL = "https://www.linkedin.com/in/vasanthkumar-s-0995a5185/";
+const WEBSITE_URL = "https://vasanthubs.co.in/";
 const AUTHOR_NAME = "Vasanth Kumar";
 
 export function Footer() {
@@ -16,7 +17,7 @@ export function Footer() {
             </span>
             <span className="hidden sm:inline text-gray-400">|</span>
             <span>
-                Built by <Link href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer" className="text-gray-800 hover:text-indigo-600 transition-colors font-bold hover:underline">{AUTHOR_NAME}</Link>
+                Built by <Link href={WEBSITE_URL} target="_blank" rel="noopener noreferrer" className="text-gray-800 hover:text-indigo-600 transition-colors font-bold hover:underline">{AUTHOR_NAME}</Link>
             </span>
         </div>
 

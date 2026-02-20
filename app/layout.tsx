@@ -10,41 +10,44 @@ export const metadata: Metadata = {
     template: "%s | DocMind",
   },
   description:
-    "Enter a URL and start chatting with its content. Powered by LangChain & OpenAI. Open Source. No login required.",
+    "Chat with any website instantly using DocMind. The ultimate AI-powered RAG tool for research, analysis, and documentation. Built by Vasanth Kumar. Open Source & No Login.",
   keywords: [
+    "DocMind",
     "RAG",
     "Chat with Website",
-    "AI",
-    "OpenAI",
+    "AI Research Assistant",
+    "Document Analysis",
+    "Web Scraper",
+    "Artificial Intelligence",
+    "Machine Learning",
     "LangChain",
+    "OpenAI",
     "Next.js",
-    "DocMind",
-    "Documentation Assistant",
+    "PDF Chat",
+    "Vasanth Kumar",
+    "Vasanthubs",
   ],
-  authors: [{ name: "Vasanth Kumar", url: "https://techvasanthsmart.github.io" }],
+  authors: [{ name: "Vasanth Kumar", url: "https://vasanthubs.co.in/" }],
   creator: "Vasanth Kumar",
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://docmind.vercel.app",
-    title: "DocMind - Chat with Any Website",
+    title: "DocMind - Chat with Any Website | AI Research Tool",
     description:
-      "Turn any website into a chatbot. Instant answers, grounded sources, and no login required.",
+      "Transform any URL into an interactive chatbot. Get instant answers with source citations. 100% Free & Open Source. Built by Vasanth Kumar.",
     siteName: "DocMind",
     images: ["/og-image.png"], // You should add an og-image.png to public/
   },
   twitter: {
     card: "summary_large_image",
-    title: "DocMind - Chat with Any Website",
+    title: "DocMind - Chat with Any Website | AI Research Tool",
     description:
-      "Turn any website into a chatbot. Instant answers, grounded sources, and no login required.",
+      "Transform any URL into an interactive chatbot. Get instant answers with source citations. 100% Free & Open Source. Built by Vasanth Kumar.",
     creator: "@techVasanthsmart",
   },
   verification: {
-    google: "google-site-verification-code", // Replace with actual code
-  },
-  icons: {
-    icon: "/icon.svg",
+    google: "MtTZgPguua5yFv3AybdrNJ-yHwwfKj3dg4v2q_OHccg",
   },
 };
 

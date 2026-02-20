@@ -29,16 +29,20 @@ export default function Sidebar({ metrics, sources }: SidebarProps) {
   }
 
   return (
-    <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl p-4 overflow-y-auto hidden lg:block space-y-6 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-      <div className="space-y-4">
+    <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl overflow-y-auto hidden lg:block scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+      <div className="flex flex-col">
         {metrics && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <MetricsDashboard metrics={metrics} />
+          <div className="sticky top-0 z-20 p-4 pb-2 bg-white/80 backdrop-blur-xl border-b border-white/20">
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <MetricsDashboard metrics={metrics} />
+            </div>
           </div>
         )}
         {sources && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-            <SourcePanel sources={sources} />
+          <div className="p-4 pt-4 space-y-4">
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+              <SourcePanel sources={sources} />
+            </div>
           </div>
         )}
       </div>

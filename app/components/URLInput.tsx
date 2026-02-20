@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Globe, Loader2, CheckCircle2, AlertCircle, ArrowRight } from "lucide-react";
 
 interface URLInputProps {
   onIngested: (data: {
@@ -15,6 +15,7 @@ export default function URLInput({ onIngested }: URLInputProps) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [steps, setSteps] = useState<string[]>([]);
   const [success, setSuccess] = useState<{
     chunkCount: number;
     documentCount: number;
@@ -27,6 +28,7 @@ export default function URLInput({ onIngested }: URLInputProps) {
     setLoading(true);
     setError("");
     setSuccess(null);
+    setSteps([]);
 
     try {
       const response = await fetch("/api/ingest", {
@@ -35,24 +37,58 @@ export default function URLInput({ onIngested }: URLInputProps) {
         body: JSON.stringify({ url: url.trim() }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to ingest URL");
+      if (!response.ok && !response.body) {
+         const data = await response.json();
+         throw new Error(data.error || "Failed to ingest URL");
       }
 
-      setSuccess({
-        chunkCount: data.chunkCount,
-        documentCount: data.documentCount,
-      });
-      onIngested({
-        url: url.trim(),
-        chunkCount: data.chunkCount,
-        documentCount: data.documentCount,
-      });
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Failed to start stream");
+
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (value) {
+            const text = decoder.decode(value);
+            const lines = text.split("\n").filter(line => line.trim() !== "");
+            
+            for (const line of lines) {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.step) {
+                        setSteps(prev => [...prev, data.step]);
+                    }
+                    if (data.success) {
+                        setSuccess({
+                            chunkCount: data.chunkCount,
+                            documentCount: data.documentCount,
+                        });
+                        onIngested({
+                            url: url.trim(),
+                            chunkCount: data.chunkCount,
+                            documentCount: data.documentCount,
+                        });
+                        setLoading(false);
+                        return; // Done
+                    }
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                } catch (e) {
+                   if (e instanceof Error && e.message !== "Unexpected end of JSON input") {
+                       console.error("Error parsing JSON line", e);
+                   }
+                }
+            }
+        }
+        
+        if (done) break;
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
       setLoading(false);
     }
   };
@@ -90,20 +126,34 @@ export default function URLInput({ onIngested }: URLInputProps) {
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading || !url.trim()}
-              className="w-full py-3.5 px-6 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 flex items-center justify-center gap-2 text-sm"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Scraping & Indexing...
-                </>
-              ) : (
-                "🚀 Start Chatting"
-              )}
-            </button>
+            {!loading && !success && (
+                <button
+                type="submit"
+                disabled={!url.trim()}
+                className="w-full py-3.5 px-6 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 flex items-center justify-center gap-2 text-sm"
+                >
+                🚀 Start Chatting
+                </button>
+            )}
+            
+            {loading && (
+                 <div className="space-y-3">
+                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-indigo-600">
+                             <Loader2 className="w-4 h-4 animate-spin" />
+                             Processing...
+                        </div>
+                        <div className="space-y-2">
+                            {steps.map((step, index) => (
+                                <div key={index} className="flex items-start gap-2 text-xs text-gray-600 animate-in fade-in slide-in-from-left-2 duration-300">
+                                    <ArrowRight className="w-3 h-3 mt-0.5 text-indigo-400 shrink-0" />
+                                    <span>{step}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
           </form>
 
           {error && (

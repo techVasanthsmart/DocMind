@@ -28,7 +28,17 @@ export default function Home() {
             <div className="text-center space-y-4 max-w-2xl">
               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-100/80 text-indigo-700 text-xs font-medium mb-2">
                 <Sparkles className="w-3.5 h-3.5" />
-                Powered by LangChain & OpenAI
+                <span>
+                  Built by{" "}
+                  <a
+                    href="https://vasanthubs.co.in/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-indigo-900 transition-colors"
+                  >
+                    Vasanth Kumar
+                  </a>
+                </span>
               </div>
               <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-indigo-800 to-purple-800 bg-clip-text text-transparent leading-tight">
                 Chat with any website
