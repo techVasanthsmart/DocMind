@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
           sendStep("Generating OpenAI Embeddings (text-embedding-3-small, 1024-dim)...");
           const embeddings = getEmbeddings();
 
-          sendStep("Connecting to Pinecone Serverless index..."); 
+          sendStep("Initializing Memory Vector Store..."); 
           // Note: We are using MemoryVectorStore here as per original code, but the status message requested Pinecone. 
           // I will keep the message as requested for the UI effect, even if implementation is MemoryVectorStore for now 
           // (or maybe it was Pinecone in user's mind? The code says MemoryVectorStore). 
