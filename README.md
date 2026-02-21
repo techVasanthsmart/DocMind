@@ -10,7 +10,23 @@
 
 **DocMind** is a cutting-edge Retrieval-Augmented Generation (RAG) agent capable of ingesting websites and enabling users to chat with their content in real-time. Built by **Vasanth Kumar** with a focus on accuracy, performance, and a premium user experience.
 
-## 🚀 Features
+## � Demo
+
+### Video Walkthrough
+<video src="./DocMind__Chat_with_Any_Website.mp4" controls="controls" style="max-width: 100%;">
+  Your browser does not support the video tag.
+</video>
+
+### Screenshots
+<div style="display: flex; gap: 10px;">
+  <img src="./demo-img-1.JPG" alt="Demo 1" width="49%">
+  <img src="./demo-img-2.JPG" alt="Demo 2" width="49%">
+</div>
+
+### Documentation
+[DocMind Precision Web Chat Overview (PDF)](./DocMind_Precision_Web_Chat.pdf)
+
+## �🚀 Features
 
 - **Website Ingestion**: Seamlessly crawl and extract content from any URL using Puppeteer.
 - **Smart Chunking**: Intelligent text splitting using LangChain's RecursiveCharacterTextSplitter.
@@ -39,6 +55,27 @@ The application follows a streamlined RAG pipeline:
 5.  **Store**: Vectors are stored in a memory vector store for fast retrieval.
 6.  **Retrieve**: User queries are embedded and compared against the store to find relevant chunks.
 7.  **Generate**: The LLM synthesizes an answer using the retrieved chunks as context.
+
+## 📂 File Structure
+
+```text
+DocMind/
+├── app/                  # Next.js app router and frontend components
+│   ├── api/              # API routes for RAG pipeline
+│   ├── components/       # Reusable React components
+│   ├── layout.tsx        # Main application layout
+│   └── page.tsx          # Main chat interface
+├── lib/                  # Core RAG logic and utilities
+│   ├── MemoryVectorStore.ts 
+│   ├── evaluator.ts      # RAG evaluation metrics
+│   ├── session.ts        # Chat session management
+│   └── vectorStore.ts    # Document processing & embedding
+├── public/               # Static assets
+├── .env.local            # Environment variables
+├── next.config.ts        # Next.js configuration
+├── package.json          # Project dependencies
+└── README.md             # Project documentation
+```
 
 ## ⚡ Getting Started
 
