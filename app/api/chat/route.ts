@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
-import { isStoreReady, similaritySearchWithScore } from "@/lib/vectorStore";
+import {
+  isStoreReady,
+  getDetailedHybridSearchResults,
+} from "@/lib/vectorStore";
 import { computeMetrics } from "@/lib/evaluator";
 import { Document } from "@langchain/core/documents";
 import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
@@ -19,29 +22,36 @@ export async function POST(request: NextRequest) {
     if (!question || typeof question !== "string") {
       return NextResponse.json(
         { error: "Please provide a question" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!isStoreReady(sessionId)) {
       return NextResponse.json(
         { error: "No documents indexed yet. Please ingest a URL first." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Retrieve relevant chunks with scores
-    const resultsWithScores = await similaritySearchWithScore(sessionId, question, 4);
+    // Retrieve relevant chunks using hybrid search (BM25 + semantic)
+    const hybridResults = await getDetailedHybridSearchResults(
+      sessionId,
+      question,
+      4,
+      {
+        semanticWeight: 0.6,
+        lexicalWeight: 0.4,
+      },
+    );
 
-    const chunks: Document[] = resultsWithScores.map(([doc]) => doc);
-    const scores: number[] = resultsWithScores.map(([, score]) =>
-      Math.max(0, 1 - score)
-    ); // Convert distance to similarity
+    const chunks: Document[] = hybridResults.map((r) => r.document);
+    const scores: number[] = hybridResults.map((r) => r.hybridScore);
+    const semanticScores: number[] = hybridResults.map((r) => r.semanticScore);
+    const lexicalScores: number[] = hybridResults.map((r) => r.lexicalScore);
 
     // Build context with source labels
     const contextParts = chunks.map(
-      (chunk, i) =>
-        `[Source ${i + 1}]:\n${chunk.pageContent}`
+      (chunk, i) => `[Source ${i + 1}]:\n${chunk.pageContent}`,
     );
     const context = contextParts.join("\n\n---\n\n");
 
@@ -70,18 +80,48 @@ ${context}`;
     // Compute evaluation metrics
     const metrics = await computeMetrics(answer, chunks, scores);
 
-    // Format sources for the response
+    // Format sources for the response with hybrid score breakdown
     const sources = chunks.map((chunk, i) => ({
       id: i + 1,
       content: chunk.pageContent,
       metadata: chunk.metadata,
       similarity: Math.round(scores[i] * 100),
+      semanticScore: Math.round(semanticScores[i] * 100),
+      lexicalScore: Math.round(lexicalScores[i] * 100),
+      hybridScore: Math.round(scores[i] * 100),
     }));
+
+    // Compute average hybrid search scores
+    const avgSemantic =
+      sources.length > 0
+        ? Math.round(
+            sources.reduce((sum, s) => sum + s.semanticScore, 0) /
+              sources.length,
+          )
+        : 0;
+    const avgLexical =
+      sources.length > 0
+        ? Math.round(
+            sources.reduce((sum, s) => sum + s.lexicalScore, 0) /
+              sources.length,
+          )
+        : 0;
+    const avgHybrid =
+      sources.length > 0
+        ? Math.round(
+            sources.reduce((sum, s) => sum + s.hybridScore, 0) / sources.length,
+          )
+        : 0;
 
     const response = NextResponse.json({
       answer,
       sources,
-      metrics,
+      metrics: {
+        ...metrics,
+        avgSemanticScore: avgSemantic,
+        avgLexicalScore: avgLexical,
+        avgHybridScore: avgHybrid,
+      },
       timestamp: new Date().toISOString(),
     });
 

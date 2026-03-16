@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Footer } from "./components/Footer";
 import { Analytics } from "@vercel/analytics/react";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://docmind.vercel.app"),
@@ -57,8 +58,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const theme = localStorage.getItem('theme') || 'light';
+                if (theme === 'dark') {
+                  document.documentElement.classList.add('dark');
+                } else {
+                  document.documentElement.classList.remove('dark');
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -71,8 +87,9 @@ export default function RootLayout({
         />
       </head>
       <body className="flex flex-col min-h-screen">
-        <main className="flex-grow">{children}</main>
+        <main className="grow">{children}</main>
         <Footer />
+        <Toaster />
         <Analytics />
       </body>
     </html>

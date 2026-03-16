@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import { Document } from "@langchain/core/documents";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import Busboy from "busboy";
 import {
   getEmbeddings,
   resetStore,
   indexDocuments,
+  isStoreReady,
 } from "@/lib/vectorStore";
 import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
+import {
+  extractTextFromFile,
+  createDocumentsFromText,
+  validateFileSize,
+  validateFileType,
+} from "@/lib/fileProcessor";
 
 export const runtime = "nodejs";
 
@@ -26,7 +35,7 @@ function resolveChromiumBrotliDir(): string | undefined {
     "node_modules",
     "@sparticuz",
     "chromium",
-    "bin"
+    "bin",
   );
   if (existsSync(nodeModulesDir)) {
     return nodeModulesDir;
@@ -36,7 +45,7 @@ function resolveChromiumBrotliDir(): string | undefined {
     process.cwd(),
     ".next",
     "node_modules",
-    "@sparticuz"
+    "@sparticuz",
   );
   if (existsSync(nextModulesScopeDir)) {
     for (const entry of readdirSync(nextModulesScopeDir)) {
@@ -57,25 +66,12 @@ function resolveChromiumBrotliDir(): string | undefined {
 export async function POST(request: NextRequest) {
   try {
     const { sessionId, isNew } = getOrCreateSessionId(request);
-    const { url } = await request.json();
-
-    if (!url || typeof url !== "string") {
-      return NextResponse.json(
-        { error: "Please provide a valid URL" },
-        { status: 400 }
-      );
-    }
-
-    try {
-      new URL(url);
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid URL format" },
-        { status: 400 }
-      );
-    }
+    const contentType = request.headers.get("content-type") || "";
 
     const encoder = new TextEncoder();
+
+    // Determine if this is multipart file upload or JSON URL request
+    const isMultipart = contentType.includes("multipart/form-data");
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -86,69 +82,213 @@ export async function POST(request: NextRequest) {
         try {
           sendStep("Initializing LangChain pipeline...");
 
-          // Reset previous session store
-          await resetStore(sessionId);
-
-          let executablePath: string | undefined;
-          let args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            `--user-agent=${DEFAULT_USER_AGENT}`,
-          ];
-          let headless: boolean | "shell" = true;
-
-          if (process.env.NODE_ENV === "production") {
-            const chromium = await import("@sparticuz/chromium").then(
-              (mod) => mod.default
-            );
-            const chromiumBrotliDir = resolveChromiumBrotliDir();
-
-            executablePath = await chromium.executablePath(chromiumBrotliDir);
-            args = [...chromium.args, `--user-agent=${DEFAULT_USER_AGENT}`];
-            headless = "shell";
+          // Only reset store on first ingest; append on subsequent ingests
+          if (!isStoreReady(sessionId)) {
+            await resetStore(sessionId);
           }
 
-          sendStep("Connecting to headless browser...");
+          const allDocs: Document[] = [];
+          const sources: Array<{ type: string; name: string; chunks: number }> =
+            [];
 
-          // Load the webpage using Puppeteer
-          const loader = new PuppeteerWebBaseLoader(url, {
-            launchOptions: {
-              headless,
-              args,
-              executablePath,
-            },
-            gotoOptions: {
-              waitUntil: "networkidle2",
-            },
-          });
+          if (isMultipart) {
+            // Handle file uploads
+            sendStep("Parsing file upload...");
 
-          sendStep("Scraping DOM elements via Puppeteer selectors...");
-          const docs = await loader.load();
+            const fileBuffers: Array<{
+              filename: string;
+              buffer: Buffer;
+              mimetype: string;
+            }> = [];
 
-          if (docs.length === 0) {
-            throw new Error("Could not extract content from this URL");
+            // Parse multipart form data
+            await new Promise<void>((resolve, reject) => {
+              const bb = Busboy({ headers: { "content-type": contentType } });
+
+              bb.on("file", (fieldname: string, file: any, info: any) => {
+                const chunks: Buffer[] = [];
+
+                file.on("data", (data: Buffer) => {
+                  chunks.push(data);
+                });
+
+                file.on("end", () => {
+                  fileBuffers.push({
+                    filename: info.filename,
+                    buffer: Buffer.concat(chunks),
+                    mimetype: info.mimeType || "application/octet-stream",
+                  });
+                });
+
+                file.on("error", reject);
+              });
+
+              bb.on("error", reject);
+              bb.on("close", resolve);
+
+              const reader = request.body?.getReader();
+              if (!reader) {
+                reject(new Error("No request body"));
+                return;
+              }
+
+              const pump = async (): Promise<void> => {
+                const result = await reader.read();
+                if (result.done) {
+                  bb.end();
+                  return;
+                }
+                bb.write(result.value);
+                return pump();
+              };
+
+              pump().catch(reject);
+            });
+
+            if (fileBuffers.length === 0) {
+              throw new Error("No files provided in upload");
+            }
+
+            sendStep(`Processing ${fileBuffers.length} file(s)...`);
+
+            // Process each file
+            for (const file of fileBuffers) {
+              try {
+                sendStep(`Validating file: ${file.filename}`);
+                validateFileType(file.filename, file.mimetype);
+                validateFileSize(file.buffer);
+
+                sendStep(`Extracting text from: ${file.filename}`);
+                const text = await extractTextFromFile(
+                  file.buffer,
+                  file.filename,
+                  file.mimetype,
+                );
+
+                sendStep(`Creating documents from: ${file.filename}`);
+                const fileDocs = createDocumentsFromText(
+                  text,
+                  file.filename,
+                  "file",
+                );
+
+                allDocs.push(...fileDocs);
+                sources.push({
+                  type: "file",
+                  name: file.filename,
+                  chunks: fileDocs.length,
+                });
+              } catch (error) {
+                const errorMsg =
+                  error instanceof Error ? error.message : "Unknown error";
+                sendStep(`Error processing ${file.filename}: ${errorMsg}`);
+                // Continue with other files
+              }
+            }
+
+            if (allDocs.length === 0) {
+              throw new Error("Failed to extract content from all files");
+            }
+          } else {
+            // Handle URL ingestion (existing flow)
+            let bodyText = "";
+            const reader = request.body?.getReader();
+            if (reader) {
+              const { value } = await reader.read();
+              bodyText = new TextDecoder().decode(value);
+            }
+
+            let url: string;
+            try {
+              const json = JSON.parse(bodyText);
+              url = json.url;
+            } catch {
+              throw new Error("Invalid JSON: missing or invalid URL");
+            }
+
+            if (!url || typeof url !== "string") {
+              throw new Error("Please provide a valid URL");
+            }
+
+            try {
+              new URL(url);
+            } catch {
+              throw new Error("Invalid URL format");
+            }
+
+            let executablePath: string | undefined;
+            let args = [
+              "--no-sandbox",
+              "--disable-setuid-sandbox",
+              `--user-agent=${DEFAULT_USER_AGENT}`,
+            ];
+            let headless: boolean | "shell" = true;
+
+            if (process.env.NODE_ENV === "production") {
+              const chromium = await import("@sparticuz/chromium").then(
+                (mod) => mod.default,
+              );
+              const chromiumBrotliDir = resolveChromiumBrotliDir();
+
+              executablePath = await chromium.executablePath(chromiumBrotliDir);
+              args = [...chromium.args, `--user-agent=${DEFAULT_USER_AGENT}`];
+              headless = "shell";
+            }
+
+            sendStep("Connecting to headless browser...");
+
+            // Load the webpage using Puppeteer
+            const loader = new PuppeteerWebBaseLoader(url, {
+              launchOptions: {
+                headless,
+                args,
+                executablePath,
+              },
+              gotoOptions: {
+                waitUntil: "networkidle2",
+              },
+            });
+
+            sendStep("Scraping DOM elements via Puppeteer selectors...");
+            const docs = await loader.load();
+
+            if (docs.length === 0) {
+              throw new Error("Could not extract content from this URL");
+            }
+
+            sendStep("Cleaning text & removing whitespace noise...");
+
+            allDocs.push(...docs);
+            sources.push({
+              type: "url",
+              name: url,
+              chunks: docs.length,
+            });
           }
-
-          sendStep("Cleaning text & removing whitespace noise...");
-          // Basic cleaning is implicitly done by loader, but we can simulate/add more if needed
 
           sendStep("Splitting documents via RecursiveCharacterTextSplitter...");
           const textSplitter = new RecursiveCharacterTextSplitter({
             chunkSize: 1000,
             chunkOverlap: 200,
           });
-          const splitDocs = await textSplitter.splitDocuments(docs);
+          const splitDocs = await textSplitter.splitDocuments(allDocs);
 
           sendStep(`Chunk stats: ~1000 tokens/chunk, 200 overlap...`);
 
           sendStep("Generating OpenAI Embeddings (text-embedding-3-small)...");
-          // Force init embeddings early so errors surface in-step.
           getEmbeddings();
 
           sendStep("Upserting vectors (Pinecone, session namespace)...");
-          const { provider } = await indexDocuments(sessionId, url, splitDocs);
+          const { provider } = await indexDocuments(
+            sessionId,
+            sources.map((s) => s.name).join(", "),
+            splitDocs,
+          );
+
           if (provider === "memory") {
-            sendStep("Pinecone unavailable; using in-memory vectors for this session...");
+            sendStep(
+              "Pinecone unavailable; using in-memory vectors for this session...",
+            );
           }
 
           sendStep("Success. Hydrating context window...");
@@ -157,20 +297,20 @@ export async function POST(request: NextRequest) {
             encoder.encode(
               JSON.stringify({
                 success: true,
-                url,
-                documentCount: docs.length,
+                sources,
+                documentCount: allDocs.length,
                 chunkCount: splitDocs.length,
-                message: `Successfully indexed ${splitDocs.length} chunks from ${url}`,
-              }) + "\n"
-            )
+                message: `Successfully indexed ${splitDocs.length} chunks from ${sources.length} source(s)`,
+              }) + "\n",
+            ),
           );
           controller.close();
         } catch (error) {
           console.error("Ingest error:", error);
           const message =
-            error instanceof Error ? error.message : "Failed to ingest URL";
+            error instanceof Error ? error.message : "Failed to ingest content";
           controller.enqueue(
-            encoder.encode(JSON.stringify({ error: message }) + "\n")
+            encoder.encode(JSON.stringify({ error: message }) + "\n"),
           );
           controller.close();
         }
@@ -191,7 +331,7 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error("Ingest setup error:", error);
     const message =
-      error instanceof Error ? error.message : "Failed to ingest URL";
+      error instanceof Error ? error.message : "Failed to ingest content";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

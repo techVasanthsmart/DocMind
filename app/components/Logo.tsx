@@ -1,6 +1,12 @@
 import React from "react";
 
-export const Logo = ({ className = "w-8 h-8", textSize = "text-xl" }: { className?: string; textSize?: string }) => {
+export const Logo = ({
+  className = "w-8 h-8",
+  textSize = "text-xl",
+}: {
+  className?: string;
+  textSize?: string;
+}) => {
   return (
     <div className="flex items-center gap-2">
       <div className={`${className} flex items-center justify-center`}>
@@ -17,10 +23,32 @@ export const Logo = ({ className = "w-8 h-8", textSize = "text-xl" }: { classNam
             strokeWidth="2"
             strokeLinejoin="round"
           />
-          <path d="M12 14H20" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M12 18H16" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-          <circle cx="22" cy="23" r="3" fill="#A78BFA" stroke="white" strokeWidth="1.5" />
-          <path d="M22 23L26 27" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          <path
+            d="M12 14H20"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M12 18H16"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <circle
+            cx="22"
+            cy="23"
+            r="3"
+            fill="#A78BFA"
+            stroke="white"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M22 23L26 27"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
           <defs>
             <linearGradient
               id="logo_gradient"
@@ -36,7 +64,7 @@ export const Logo = ({ className = "w-8 h-8", textSize = "text-xl" }: { classNam
           </defs>
         </svg>
       </div>
-      <span className={`font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-700 ${textSize}`}>
+      <span className={`font-bold text-foreground dark:text-white ${textSize}`}>
         DocMind
       </span>
     </div>

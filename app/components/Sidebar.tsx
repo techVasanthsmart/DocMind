@@ -12,15 +12,15 @@ interface SidebarProps {
 export default function Sidebar({ metrics, sources }: SidebarProps) {
   if (!metrics && !sources) {
     return (
-      <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl p-6 hidden lg:flex flex-col items-center justify-center text-center space-y-4">
-        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-          <Info className="w-6 h-6 text-gray-400" />
+      <div className="w-80 border-l border-border bg-gray-50 p-6 hidden lg:flex flex-col items-center justify-center text-center space-y-4 dark:bg-zinc-900 dark:border-zinc-700">
+        <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center">
+          <Info className="w-6 h-6 text-muted" />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-gray-700">
+          <h3 className="text-sm font-semibold text-foreground dark:text-white">
             No Data Available
           </h3>
-          <p className="text-xs text-gray-500 mt-1 max-w-[200px]">
+          <p className="text-xs text-muted mt-1 max-w-50">
             Ask a question to see evaluation metrics and source citations here.
           </p>
         </div>
@@ -29,21 +29,22 @@ export default function Sidebar({ metrics, sources }: SidebarProps) {
   }
 
   return (
-    <div className="w-80 border-l border-white/60 bg-white/40 backdrop-blur-xl hidden lg:flex flex-col min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-      {metrics && (
-        <div className="p-4 pb-3 bg-white/80 backdrop-blur-xl border-b border-white/20">
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="w-80 border-l border-border bg-gray-50 hidden lg:flex flex-col min-h-0 dark:bg-zinc-900 dark:border-zinc-700 p-4">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-900 rounded-lg border border-border dark:border-zinc-700 p-4 space-y-6 shadow-sm">
+        {metrics && (
+          <div className="animate-fade-in">
             <MetricsDashboard metrics={metrics} />
           </div>
-        </div>
-      )}
-      {sources && (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+        )}
+        {metrics && sources && (
+          <div className="border-t border-border dark:border-zinc-700 pt-6" />
+        )}
+        {sources && (
+          <div className="animate-fade-in">
             <SourcePanel sources={sources} />
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

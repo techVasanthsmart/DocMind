@@ -1,4 +1,5 @@
 import { MemoryVectorStore } from "./MemoryVectorStore";
+import { HybridSearchEngine, type HybridSearchOptions } from "./hybridSearch";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { Document } from "@langchain/core/documents";
 import { Pinecone, type Index } from "@pinecone-database/pinecone";
@@ -14,6 +15,8 @@ type SessionState = {
   suggestionContext: string;
   lastActiveAt: number;
   memoryStore?: MemoryVectorStore;
+  hybridSearchEngine?: HybridSearchEngine;
+  allDocuments?: Document[]; // Store all documents for hybrid search
 };
 
 type PineconeChunkMetadata = {
@@ -35,7 +38,7 @@ const CONFIGURED_EMBEDDING_DIMENSIONS = (() => {
 
 const SESSION_IDLE_TTL_MINUTES = Number.parseInt(
   process.env.SESSION_IDLE_TTL_MINUTES ?? "30",
-  10
+  10,
 );
 const SESSION_IDLE_TTL_MS = Number.isFinite(SESSION_IDLE_TTL_MINUTES)
   ? Math.max(1, SESSION_IDLE_TTL_MINUTES) * 60_000
@@ -50,9 +53,7 @@ const embeddings = new OpenAIEmbeddings({
   dimensions: CONFIGURED_EMBEDDING_DIMENSIONS,
 });
 
-let pineconeIndex:
-  | Index<PineconeChunkMetadata>
-  | null = null;
+let pineconeIndex: Index<PineconeChunkMetadata> | null = null;
 let pineconeIndexDimension: number | null = null;
 
 function createPineconeClient() {
@@ -69,7 +70,9 @@ function getPineconeIndex() {
   const pc = createPineconeClient();
   if (!pc) return null;
 
-  const host = (process.env.PINECONE_HOST?.trim() || DEFAULT_PINECONE_HOST).trim();
+  const host = (
+    process.env.PINECONE_HOST?.trim() || DEFAULT_PINECONE_HOST
+  ).trim();
   if (!host) return null;
 
   pineconeIndex = pc.index<PineconeChunkMetadata>({ host });
@@ -107,7 +110,12 @@ function cleanupExpiredSessions(now: number) {
 
     if (state.provider === "pinecone" && index) {
       void index.deleteNamespace(sessionId).catch((e: unknown) => {
-        if (e && typeof e === "object" && "name" in e && e.name === "PineconeNotFoundError") {
+        if (
+          e &&
+          typeof e === "object" &&
+          "name" in e &&
+          e.name === "PineconeNotFoundError"
+        ) {
           return;
         }
         console.error("Pinecone cleanup failed:", e);
@@ -157,13 +165,20 @@ export async function resetStore(sessionId: string) {
   state.documentCount = 0;
   state.suggestionContext = "";
   state.memoryStore = undefined;
+  state.hybridSearchEngine = undefined;
+  state.allDocuments = undefined;
 
   const index = getPineconeIndex();
   if (state.provider === "pinecone" && index) {
     try {
       await index.deleteNamespace(sessionId);
     } catch (e: unknown) {
-      if (e && typeof e === "object" && "name" in e && e.name === "PineconeNotFoundError") {
+      if (
+        e &&
+        typeof e === "object" &&
+        "name" in e &&
+        e.name === "PineconeNotFoundError"
+      ) {
         return;
       }
       throw e;
@@ -182,7 +197,7 @@ export function getSuggestionContext(sessionId: string): string {
 export async function indexDocuments(
   sessionId: string,
   url: string,
-  splitDocs: Document[]
+  splitDocs: Document[],
 ) {
   const state = touchSession(sessionId);
   const context = splitDocs
@@ -194,6 +209,10 @@ export async function indexDocuments(
   state.ingestedUrl = url;
   state.documentCount = splitDocs.length;
   state.suggestionContext = context;
+  state.allDocuments = splitDocs; // Store all documents for hybrid search
+
+  // Initialize hybrid search engine
+  state.hybridSearchEngine = new HybridSearchEngine(splitDocs);
 
   const index = getPineconeIndex();
   if (state.provider === "pinecone" && index) {
@@ -230,7 +249,10 @@ export async function indexDocuments(
     return { provider: "pinecone" as const };
   }
 
-  const memoryStore = await MemoryVectorStore.fromDocuments(splitDocs, embeddings);
+  const memoryStore = await MemoryVectorStore.fromDocuments(
+    splitDocs,
+    embeddings,
+  );
   state.memoryStore = memoryStore;
   state.isReady = true;
   state.provider = "memory";
@@ -240,7 +262,7 @@ export async function indexDocuments(
 export async function similaritySearchWithScore(
   sessionId: string,
   query: string,
-  k: number
+  k: number,
 ): Promise<Array<[Document, number]>> {
   const state = touchSession(sessionId);
   if (!state.isReady) return [];
@@ -278,4 +300,107 @@ export async function similaritySearchWithScore(
   const store = state.memoryStore;
   if (!store) return [];
   return store.similaritySearchWithScore(query, k);
+}
+
+/**
+ * Hybrid search combining BM25 (lexical) + semantic similarity
+ * Returns results sorted by combined hybrid score
+ */
+export async function hybridSearchWithScore(
+  sessionId: string,
+  query: string,
+  k: number = 4,
+  options?: Partial<HybridSearchOptions>,
+): Promise<Array<[Document, number]>> {
+  const state = touchSession(sessionId);
+  if (!state.isReady || !state.hybridSearchEngine) return [];
+
+  // First, get semantic results
+  const semanticResults = await similaritySearchWithScore(
+    sessionId,
+    query,
+    k * 2,
+  );
+
+  // Perform hybrid search
+  const hybridResults = state.hybridSearchEngine.hybridSearch(
+    semanticResults,
+    query,
+    { k, ...options },
+  );
+
+  // Convert to format compatible with existing code
+  return hybridResults.map((result) => [result.document, result.distance]);
+}
+
+/**
+ * Hybrid search using Reciprocal Rank Fusion (RRF)
+ * Alternative method that fuses rankings instead of combining scores
+ */
+export async function hybridSearchRRFWithScore(
+  sessionId: string,
+  query: string,
+  k: number = 4,
+): Promise<Array<[Document, number]>> {
+  const state = touchSession(sessionId);
+  if (!state.isReady || !state.hybridSearchEngine) return [];
+
+  // First, get semantic results
+  const semanticResults = await similaritySearchWithScore(
+    sessionId,
+    query,
+    k * 2,
+  );
+
+  // Perform RRF hybrid search
+  const hybridResults = state.hybridSearchEngine.hybridSearchRRF(
+    semanticResults,
+    query,
+    k,
+  );
+
+  // Convert to format compatible with existing code
+  return hybridResults.map((result) => [result.document, result.distance]);
+}
+
+/**
+ * Get detailed hybrid search results with all scoring information
+ * Useful for debugging and understanding which method contributed more
+ */
+export async function getDetailedHybridSearchResults(
+  sessionId: string,
+  query: string,
+  k: number = 4,
+  options?: Partial<HybridSearchOptions>,
+): Promise<
+  Array<{
+    document: Document;
+    semanticScore: number;
+    lexicalScore: number;
+    hybridScore: number;
+  }>
+> {
+  const state = touchSession(sessionId);
+  if (!state.isReady || !state.hybridSearchEngine) return [];
+
+  // First, get semantic results
+  const semanticResults = await similaritySearchWithScore(
+    sessionId,
+    query,
+    k * 2,
+  );
+
+  // Perform hybrid search
+  const hybridResults = state.hybridSearchEngine.hybridSearch(
+    semanticResults,
+    query,
+    { k, ...options },
+  );
+
+  return hybridResults.map((result) => ({
+    document: result.document,
+    semanticScore: result.semanticScore,
+    lexicalScore: result.lexicalScore,
+    hybridScore: result.hybridScore,
+  }));
 }
