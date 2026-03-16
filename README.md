@@ -13,7 +13,7 @@
 
 **DocMind v2** is a cutting-edge Retrieval-Augmented Generation (RAG) agent capable of ingesting websites and files, enabling users to chat with their content in real-time. Built with **Hybrid Search** combining semantic + lexical algorithms for superior accuracy. Made with ❤️ by **Vasanth Kumar**.
 
-## � Demo
+## Demo
 
 ### Video Walkthrough
 
@@ -30,10 +30,6 @@
   <img src="./demo4.png" alt="Demo 2" width="49%">
   <img src="./demo5.png" alt="Demo 2" width="49%">
 </div>
-
-### Documentation
-
-[DocMind Precision Web Chat Overview (PDF)](./DocMind_Precision_Web_Chat.pdf)
 
 ## �🚀 Features
 
