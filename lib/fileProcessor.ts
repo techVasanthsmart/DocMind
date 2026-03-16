@@ -8,8 +8,21 @@ let docxModule: any = null;
 async function getPDFParser() {
   if (!PDFParser) {
     try {
-      const module = await import("pdf-parse");
-      PDFParser = module.default || module;
+      // pdf-parse 2.4.5 exports as named export
+      const pdfParseModule: any = await import("pdf-parse");
+      // Try different export patterns
+      PDFParser =
+        pdfParseModule.default || pdfParseModule.pdf || pdfParseModule;
+
+      // If it's a namespace with a default property, use that
+      if (
+        PDFParser &&
+        typeof PDFParser === "object" &&
+        PDFParser.default &&
+        typeof PDFParser.default === "function"
+      ) {
+        PDFParser = PDFParser.default;
+      }
     } catch (error) {
       console.warn("pdf-parse not available:", error);
       return null;
