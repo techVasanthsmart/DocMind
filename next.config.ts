@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     "puppeteer-core",
     "@sparticuz/chromium",
     "pdf-parse",
+    "pdfjs-dist",
   ],
   outputFileTracingIncludes: {
     "/api/ingest/route": ["./node_modules/@sparticuz/chromium/bin/**/*"],

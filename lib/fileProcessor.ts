@@ -44,6 +44,8 @@ interface ZipContent {
 let PDFParser: PdfParseFunction | null = null;
 let XLSX: XlsxModuleType | null = null;
 let docxModule: DocxModuleType | null = null;
+let pdfJsLib: any = null;
+let pdfJsWorker: any = null;
 
 async function getPDFParser(): Promise<PdfParseFunction | null> {
   if (!PDFParser) {
@@ -59,15 +61,156 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
               ? (pdfParseModule as any).pdf
               : null;
       PDFParser = fn as any as PdfParseFunction | null;
+
+      if (PDFParser) {
+        console.log("pdf-parse loaded successfully");
+      } else {
+        console.warn("pdf-parse module loaded but export format is unexpected");
+      }
     } catch (error) {
       console.warn(
-        "pdf-parse not available:",
+        "pdf-parse not available (likely missing canvas native dependency):",
         error instanceof Error ? error.message : error,
       );
       return null;
     }
   }
   return PDFParser;
+}
+
+async function getPdfJsLib() {
+  if (!pdfJsLib) {
+    try {
+      const pdfjs = await import("pdfjs-dist");
+      pdfJsLib = pdfjs;
+
+      // Initialize worker for serverless environments
+      // Use CDN-hosted worker as fallback for Vercel
+      try {
+        if (pdfjs.GlobalWorkerOptions) {
+          // Try to use CDN worker for serverless
+          pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+          console.log("pdfjs-dist worker initialized from CDN");
+        }
+      } catch (workerError) {
+        console.warn(
+          "Could not set pdfjs worker source:",
+          workerError instanceof Error ? workerError.message : workerError,
+        );
+        // Continue anyway - pdfjs can still work without worker for text extraction
+      }
+
+      console.log("pdfjs-dist loaded successfully");
+    } catch (error) {
+      console.warn(
+        "pdfjs-dist not available:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    }
+  }
+  return pdfJsLib;
+}
+
+// Fallback PDF parser using pdfjs-dist (pure JS, no native dependencies)
+async function extractTextFromPdfUsingPdfjs(buffer: Buffer): Promise<string> {
+  try {
+    const pdfjs = await getPdfJsLib();
+    if (!pdfjs || !pdfjs.getDocument) {
+      throw new Error("pdfjs-dist getDocument not available");
+    }
+
+    // Set timeout for PDF loading (serverless environments may be slow)
+    const timeoutMs = 30000; // 30 seconds
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const loadingTask = pdfjs.getDocument({
+        data: buffer,
+        useSystemFonts: true,
+      });
+
+      const pdf = await Promise.race([
+        loadingTask.promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("PDF loading timeout")), timeoutMs),
+        ),
+      ]);
+
+      if (!pdf || typeof pdf.numPages !== "number") {
+        throw new Error("Invalid PDF object: missing numPages");
+      }
+
+      let text = "";
+      let pagesProcessed = 0;
+      const maxPages = Math.min(pdf.numPages, 500); // Limit to 500 pages for serverless
+
+      console.log(
+        `Extracting text from PDF with ${pdf.numPages} pages (processing max ${maxPages})`,
+      );
+
+      for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+        try {
+          const page = await pdf.getPage(pageNum);
+          if (!page) {
+            console.warn(`Page ${pageNum} returned null, skipping`);
+            continue;
+          }
+
+          const textContent = await page.getTextContent({
+            normalizeSpaces: true,
+          });
+
+          if (
+            textContent &&
+            textContent.items &&
+            Array.isArray(textContent.items)
+          ) {
+            const pageText = textContent.items
+              .map((item: any) => {
+                if (typeof item.str === "string") return item.str;
+                if (typeof item === "string") return item;
+                return "";
+              })
+              .join("");
+
+            if (pageText.trim()) {
+              text += pageText + "\n";
+            }
+          }
+          pagesProcessed++;
+        } catch (pageError) {
+          console.warn(
+            `Error processing page ${pageNum}:`,
+            pageError instanceof Error ? pageError.message : pageError,
+          );
+          // Continue to next page on error
+          continue;
+        }
+      }
+
+      clearTimeout(timeoutId);
+
+      if (!text.trim()) {
+        throw new Error(
+          `No text extracted from PDF (processed ${pagesProcessed} pages)`,
+        );
+      }
+
+      console.log(
+        `Successfully extracted ${text.length} characters from ${pagesProcessed} pages using pdfjs-dist`,
+      );
+      return text.trim();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("pdfjs-dist extraction failed:", errorMsg);
+    throw new Error(`Failed to extract text using pdfjs-dist: ${errorMsg}`);
+  }
 }
 
 async function getXLSX(): Promise<XlsxModuleType | null> {
@@ -198,44 +341,41 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
 
 // Read PDF files
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+  console.log(`Starting PDF extraction for ${buffer.length} byte file`);
+
   try {
+    // Try primary parser (pdf-parse with canvas support)
+    console.log("Attempting PDF extraction with pdf-parse...");
     const parser = await getPDFParser();
-    if (!parser) {
-      throw new Error(
-        "PDF parser not available - pdf-parse module failed to load",
-      );
+
+    if (parser && typeof parser === "function") {
+      try {
+        const pdfData = await parser(buffer);
+        if (pdfData && pdfData.text && pdfData.text.trim()) {
+          console.log(
+            `✓ Successfully extracted PDF using pdf-parse (${pdfData.text.length} chars)`,
+          );
+          return pdfData.text.trim();
+        } else {
+          console.log("pdf-parse returned empty or invalid data");
+        }
+      } catch (parseError) {
+        console.warn(
+          "pdf-parse parsing failed:",
+          parseError instanceof Error ? parseError.message : parseError,
+        );
+      }
+    } else {
+      console.log("pdf-parse not available (missing canvas native dependency)");
     }
 
-    if (typeof parser !== "function") {
-      throw new Error(
-        `PDF parser has unexpected type: ${typeof parser}. Expected function.`,
-      );
-    }
-
-    let pdfData: ParsedPdfData | null = null;
-    try {
-      pdfData = await parser(buffer);
-    } catch (parseError) {
-      throw new Error(
-        `Failed to parse PDF content: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
-      );
-    }
-
-    if (!pdfData) {
-      throw new Error("PDF parser returned no data");
-    }
-
-    const text = pdfData.text;
-
-    if (!text || !text.trim()) {
-      throw new Error("No text content found in PDF (may be image-based)");
-    }
-
-    return text.trim();
+    // Fallback to pdfjs-dist (pure JS, no native dependencies)
+    console.log("Falling back to pdfjs-dist...");
+    return await extractTextFromPdfUsingPdfjs(buffer);
   } catch (error) {
-    throw new Error(
-      `Failed to extract text from PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("PDF extraction completely failed:", errorMsg);
+    throw new Error(`Failed to extract text from PDF: ${errorMsg}`);
   }
 }
 
