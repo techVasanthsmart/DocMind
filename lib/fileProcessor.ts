@@ -1,41 +1,133 @@
 import { Document } from "@langchain/core/documents";
 
 // Lazy import these to avoid hard dependencies causing build failures
-let PDFParser: any = null;
-let XLSX: any = null;
-let docxModule: any = null;
+type ParsedPdfData = { text?: string };
+type PdfParseFunction = (buffer: Buffer) => Promise<ParsedPdfData>;
 
-async function getPDFParser() {
+interface PdfParseInstance {
+  getText: () => Promise<ParsedPdfData>;
+  destroy?: () => Promise<void> | void;
+}
+
+interface PdfParseCtor {
+  new (options: { data: Uint8Array }): PdfParseInstance;
+}
+
+interface XlsxWorkbook {
+  SheetNames: string[];
+  Sheets: Record<string, unknown>;
+}
+
+interface XlsxModuleType {
+  read: (buffer: Buffer, options: { type: "buffer" }) => XlsxWorkbook;
+  utils: {
+    sheet_to_csv: (sheet: unknown) => string;
+  };
+}
+
+interface DocxNode {
+  children?: DocxNode[];
+  text?: string;
+}
+
+interface DocxZip {
+  document?: {
+    body?: {
+      children?: DocxNode[];
+    };
+  };
+}
+
+interface DocxModuleType {
+  load: (buffer: Buffer) => Promise<DocxZip>;
+}
+
+interface ZipEntry {
+  async: (type: "string") => Promise<string>;
+}
+
+interface ZipContent {
+  files: Record<string, ZipEntry>;
+}
+
+let PDFParser: PdfParseFunction | null = null;
+let XLSX: XlsxModuleType | null = null;
+let docxModule: DocxModuleType | null = null;
+
+async function getPDFParser(): Promise<PdfParseFunction | null> {
   if (!PDFParser) {
     try {
-      // pdf-parse 2.4.5 exports as named export
-      const pdfParseModule: any = await import("pdf-parse");
-      // Try different export patterns
-      PDFParser =
-        pdfParseModule.default || pdfParseModule.pdf || pdfParseModule;
+      const pdfParseModule: unknown = await import("pdf-parse");
+      const moduleRecord =
+        pdfParseModule && typeof pdfParseModule === "object"
+          ? (pdfParseModule as Record<string, unknown>)
+          : null;
 
-      // If it's a namespace with a default property, use that
-      if (
-        PDFParser &&
-        typeof PDFParser === "object" &&
-        PDFParser.default &&
-        typeof PDFParser.default === "function"
-      ) {
-        PDFParser = PDFParser.default;
+      const isLegacyFunction = (value: unknown): value is PdfParseFunction =>
+        typeof value === "function" &&
+        typeof (value as { prototype?: { getText?: unknown } }).prototype
+          ?.getText !== "function";
+
+      const isPdfParseCtor = (value: unknown): value is PdfParseCtor =>
+        typeof value === "function" &&
+        typeof (value as { prototype?: { getText?: unknown } }).prototype
+          ?.getText === "function";
+
+      const modernParserCtorCandidates: unknown[] = [
+        moduleRecord?.PDFParse,
+        (moduleRecord?.default as Record<string, unknown> | undefined)
+          ?.PDFParse,
+      ];
+
+      const modernParserCtor = modernParserCtorCandidates.find(isPdfParseCtor);
+
+      if (modernParserCtor) {
+        PDFParser = async (buffer: Buffer): Promise<ParsedPdfData> => {
+          const parser = new modernParserCtor({ data: new Uint8Array(buffer) });
+          try {
+            const result = await parser.getText();
+            return { text: result?.text ?? "" };
+          } finally {
+            await parser.destroy?.();
+          }
+        };
+        return PDFParser;
+      }
+
+      const candidates = [
+        moduleRecord?.default,
+        moduleRecord?.pdf,
+        (moduleRecord?.default as Record<string, unknown> | undefined)?.default,
+        pdfParseModule,
+      ];
+
+      PDFParser = candidates.find(isLegacyFunction) || null;
+
+      if (!PDFParser) {
+        console.warn(
+          "pdf-parse module loaded but no callable export was found",
+          {
+            moduleType: typeof pdfParseModule,
+            moduleKeys: moduleRecord ? Object.keys(moduleRecord) : [],
+          },
+        );
       }
     } catch (error) {
-      console.warn("pdf-parse not available:", error);
+      console.warn(
+        "pdf-parse not available:",
+        error instanceof Error ? error.message : error,
+      );
       return null;
     }
   }
   return PDFParser;
 }
 
-async function getXLSX() {
+async function getXLSX(): Promise<XlsxModuleType | null> {
   if (!XLSX) {
     try {
-      const module = await import("xlsx");
-      XLSX = module.default || module;
+      const importedModule = await import("xlsx");
+      XLSX = (importedModule.default || importedModule) as XlsxModuleType;
     } catch (error) {
       console.warn("xlsx not available:", error);
       return null;
@@ -44,11 +136,11 @@ async function getXLSX() {
   return XLSX;
 }
 
-async function getDocxModule() {
+async function getDocxModule(): Promise<DocxModuleType | null> {
   if (!docxModule) {
     try {
-      const module = await import("docx");
-      docxModule = module;
+      const importedModule = await import("docx");
+      docxModule = importedModule as unknown as DocxModuleType;
     } catch (error) {
       console.warn("docx not available:", error);
       return null;
@@ -65,10 +157,17 @@ async function extractTextFromDocx(buffer: Buffer): Promise<string> {
       throw new Error("DOCX parser not available");
     }
 
-    const zip = await docx.load(buffer);
+    let zip: DocxZip;
+    try {
+      zip = await docx.load(buffer);
+    } catch (loadError) {
+      throw new Error(
+        `Failed to parse DOCX file: ${loadError instanceof Error ? loadError.message : "Invalid file format"}`,
+      );
+    }
 
     if (!zip || !zip.document) {
-      throw new Error("Invalid DOCX file structure");
+      throw new Error("Invalid DOCX file structure - missing document");
     }
 
     let text = "";
@@ -105,16 +204,39 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
     if (!xlsx) {
       throw new Error("XLSX parser not available");
     }
-    const workbook = xlsx.read(buffer, { type: "buffer" });
+
+    let workbook: XlsxWorkbook;
+    try {
+      workbook = xlsx.read(buffer, { type: "buffer" });
+    } catch (readError) {
+      throw new Error(
+        `Failed to parse XLSX file: ${readError instanceof Error ? readError.message : "Invalid file format"}`,
+      );
+    }
+
+    if (!workbook || !workbook.SheetNames) {
+      throw new Error("Invalid XLSX file structure");
+    }
+
     let text = "";
 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) {
+        continue;
+      }
+
       text += `=== Sheet: ${sheetName} ===\n`;
 
       // Convert sheet to CSV format for text extraction
-      const csv = xlsx.utils.sheet_to_csv(worksheet);
-      text += csv + "\n\n";
+      try {
+        const csv = xlsx.utils.sheet_to_csv(worksheet);
+        if (csv && csv.trim()) {
+          text += csv + "\n\n";
+        }
+      } catch {
+        console.warn(`Warning: Could not convert sheet ${sheetName} to CSV`);
+      }
     }
 
     if (!text.trim()) {
@@ -134,13 +256,34 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
     const parser = await getPDFParser();
     if (!parser) {
-      throw new Error("PDF parser not available");
+      throw new Error(
+        "PDF parser not available - pdf-parse module failed to load",
+      );
     }
-    const pdfData = await parser(buffer);
+
+    if (typeof parser !== "function") {
+      throw new Error(
+        `PDF parser has unexpected type: ${typeof parser}. Expected function.`,
+      );
+    }
+
+    let pdfData: ParsedPdfData | null = null;
+    try {
+      pdfData = await parser(buffer);
+    } catch (parseError) {
+      throw new Error(
+        `Failed to parse PDF content: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
+      );
+    }
+
+    if (!pdfData) {
+      throw new Error("PDF parser returned no data");
+    }
+
     const text = pdfData.text;
 
     if (!text || !text.trim()) {
-      throw new Error("No text content found in PDF");
+      throw new Error("No text content found in PDF (may be image-based)");
     }
 
     return text.trim();
@@ -157,7 +300,15 @@ async function extractTextFromPptx(buffer: Buffer): Promise<string> {
     // Dynamic import for JSZip
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
-    const zipContent = await zip.loadAsync(buffer);
+
+    let zipContent: ZipContent;
+    try {
+      zipContent = (await zip.loadAsync(buffer)) as unknown as ZipContent;
+    } catch (zipError) {
+      throw new Error(
+        `Failed to parse PPTX file structure: ${zipError instanceof Error ? zipError.message : "Invalid ZIP format"}`,
+      );
+    }
 
     let text = "";
 
@@ -166,22 +317,30 @@ async function extractTextFromPptx(buffer: Buffer): Promise<string> {
       path.match(/ppt\/slides\/slide\d+\.xml$/),
     );
 
-    for (const slidePath of slideFiles.sort()) {
-      const slideContent = await zipContent.files[slidePath].async("string");
+    if (slideFiles.length === 0) {
+      throw new Error("No slide content found in PPTX file");
+    }
 
-      // Extract text from XML tags (simple regex approach)
-      const textMatches = slideContent.match(/<a:t>([^<]+)<\/a:t>/g);
-      if (textMatches) {
-        for (const match of textMatches) {
-          const content = match.replace(/<a:t>|<\/a:t>/g, "");
-          text += content + " ";
+    for (const slidePath of slideFiles.sort()) {
+      try {
+        const slideContent = await zipContent.files[slidePath].async("string");
+
+        // Extract text from XML tags (simple regex approach)
+        const textMatches = slideContent.match(/<a:t>([^<]+)<\/a:t>/g);
+        if (textMatches) {
+          for (const match of textMatches) {
+            const content = match.replace(/<a:t>|<\/a:t>/g, "");
+            text += content + " ";
+          }
         }
+        text += "\n";
+      } catch {
+        console.warn(`Warning: Could not extract text from slide ${slidePath}`);
       }
-      text += "\n";
     }
 
     if (!text.trim()) {
-      throw new Error("No text content found in PPTX");
+      throw new Error("No text content found in PPTX (may be image-only)");
     }
 
     return text.trim();
@@ -333,7 +492,7 @@ export function validateFileType(fileName: string, mimeType: string): void {
 
   if (!supportedExtensions.includes(fileExtension)) {
     throw new Error(
-      `Unsupported file format: .${fileExtension}. Supported formats: PDF, DOCX, XLSX, PPTX, TXT, Markdown`,
+      `Unsupported file format: .${fileExtension} (${mimeType}). Supported formats: PDF, DOCX, XLSX, PPTX, TXT, Markdown`,
     );
   }
 }

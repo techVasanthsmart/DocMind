@@ -8,6 +8,8 @@ import { computeMetrics } from "@/lib/evaluator";
 import { Document } from "@langchain/core/documents";
 import { getOrCreateSessionId, setSessionCookie } from "@/lib/session";
 
+export const runtime = "nodejs";
+
 const llm = new ChatOpenAI({
   modelName: "gpt-4o-mini",
   temperature: 0.1,

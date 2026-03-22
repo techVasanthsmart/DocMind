@@ -119,7 +119,7 @@ export default function MetricsDashboard({ metrics }: MetricsDashboardProps) {
         />
         <MetricBar
           value={metrics.hallucinationRisk}
-          label="Hallucination"
+          label="Hallucination-Free"
           icon={AlertTriangle}
           invert={true}
         />

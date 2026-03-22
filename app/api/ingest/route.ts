@@ -151,6 +151,9 @@ export async function POST(request: NextRequest) {
 
             sendStep(`Processing ${fileBuffers.length} file(s)...`);
 
+            // Track errors to provide better diagnostics
+            const fileErrors: Array<{ file: string; error: string }> = [];
+
             // Process each file
             for (const file of fileBuffers) {
               try {
@@ -164,6 +167,10 @@ export async function POST(request: NextRequest) {
                   file.filename,
                   file.mimetype,
                 );
+
+                if (!text || !text.trim()) {
+                  throw new Error("Extracted text is empty");
+                }
 
                 sendStep(`Creating documents from: ${file.filename}`);
                 const fileDocs = createDocumentsFromText(
@@ -181,13 +188,20 @@ export async function POST(request: NextRequest) {
               } catch (error) {
                 const errorMsg =
                   error instanceof Error ? error.message : "Unknown error";
+                fileErrors.push({ file: file.filename, error: errorMsg });
                 sendStep(`Error processing ${file.filename}: ${errorMsg}`);
                 // Continue with other files
               }
             }
 
             if (allDocs.length === 0) {
-              throw new Error("Failed to extract content from all files");
+              const errorDetails =
+                fileErrors.length > 0
+                  ? `\n${fileErrors.map((e) => `- ${e.file}: ${e.error}`).join("\n")}`
+                  : "";
+              throw new Error(
+                `Failed to extract content from all files.${errorDetails}`,
+              );
             }
           } else {
             // Handle URL ingestion (existing flow)
