@@ -126,18 +126,29 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
         return PDFParser;
       }
 
+      console.warn("pdf-parse import succeeded but parser was not resolvable");
+    } catch (error) {
+      console.warn(
+        "pdf-parse import failed:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+
+    try {
       const requiredModule = require("pdf-parse") as unknown;
       PDFParser = resolvePdfParserFromModule(requiredModule);
       if (PDFParser) {
         return PDFParser;
       }
+      console.warn("pdf-parse require succeeded but parser was not resolvable");
     } catch (error) {
       console.warn(
-        "pdf-parse not available:",
+        "pdf-parse require failed:",
         error instanceof Error ? error.message : error,
       );
-      return null;
     }
+
+    return null;
   }
   return PDFParser;
 }
