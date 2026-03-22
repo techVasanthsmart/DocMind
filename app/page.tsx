@@ -13,13 +13,27 @@ export default function Home() {
     chunkCount: number;
     documentCount: number;
   } | null>(null);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== "undefined") {
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  // Clear Pinecone session data when tab/browser is closed
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // keepalive ensures the request completes even as the page unloads
+      fetch("/api/session", { method: "DELETE", keepalive: true }).catch(
+        () => {},
+      );
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
-    // Check for dark mode on client side
-    const isDarkMode = document.documentElement.classList.contains("dark");
-    setIsDark(isDarkMode);
-
     // Listen for dark mode changes
     const observer = new MutationObserver(() => {
       const isDarkNow = document.documentElement.classList.contains("dark");
@@ -126,13 +140,13 @@ export default function Home() {
                 className="text-center space-y-2"
                 variants={itemVariants}
               >
-                <h1 className="text-4xl sm:text-5xl font-bold tracking-tighter bg-gradient-to-r from-foreground via-accent to-blue-500 dark:from-white dark:via-accent dark:to-blue-400 bg-clip-text text-transparent">
+                <h1 className="text-4xl sm:text-5xl font-bold tracking-tighter bg-linear-to-r from-foreground via-accent to-blue-500 dark:from-white dark:via-accent dark:to-blue-400 bg-clip-text text-transparent">
                   DocMind
                 </h1>
                 <p className="text-xl sm:text-2xl font-semibold text-foreground dark:text-white">
                   Chat with Files & Links
                 </p>
-                <div className="h-0.5 w-20 bg-gradient-to-r from-accent to-blue-500 mx-auto rounded-full"></div>
+                <div className="h-0.5 w-20 bg-linear-to-r from-accent to-blue-500 mx-auto rounded-full"></div>
               </motion.div>
 
               {/* Subheading */}
@@ -151,7 +165,7 @@ export default function Home() {
                 whileHover={{ scale: 1.01 }}
                 transition={{ duration: 0.2 }}
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-accent/20 to-blue-400/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="absolute inset-0 bg-linear-to-r from-accent/20 to-blue-400/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 <div className="relative">
                   <CombinedSourceInput onIngested={setIngested} />
                 </div>
