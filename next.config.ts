@@ -1,16 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: [
-    "puppeteer-core",
-    "@sparticuz/chromium",
-    "pdf-parse",
-  ],
+  serverExternalPackages: ["puppeteer-core", "@sparticuz/chromium"],
   outputFileTracingIncludes: {
-    "/api/ingest/route": [
-      "./node_modules/@sparticuz/chromium/bin/**/*",
-      "./node_modules/pdf-parse/**/*",
-    ],
+    "/api/ingest/route": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 };
 

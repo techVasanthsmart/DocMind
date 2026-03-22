@@ -1,18 +1,8 @@
 import { Document } from "@langchain/core/documents";
-import { createRequire } from "node:module";
 
 // Lazy import these to avoid hard dependencies causing build failures
 type ParsedPdfData = { text?: string };
 type PdfParseFunction = (buffer: Buffer) => Promise<ParsedPdfData>;
-
-interface PdfParseInstance {
-  getText: () => Promise<ParsedPdfData>;
-  destroy?: () => Promise<void> | void;
-}
-
-interface PdfParseCtor {
-  new (options: { data: Uint8Array }): PdfParseInstance;
-}
 
 interface XlsxWorkbook {
   SheetNames: string[];
@@ -57,98 +47,22 @@ let docxModule: DocxModuleType | null = null;
 
 async function getPDFParser(): Promise<PdfParseFunction | null> {
   if (!PDFParser) {
-    const require = createRequire(import.meta.url);
-
-    const resolvePdfParserFromModule = (
-      pdfParseModule: unknown,
-    ): PdfParseFunction | null => {
-      const moduleRecord =
-        pdfParseModule && typeof pdfParseModule === "object"
-          ? (pdfParseModule as Record<string, unknown>)
-          : null;
-
-      const isLegacyFunction = (value: unknown): value is PdfParseFunction =>
-        typeof value === "function" &&
-        typeof (value as { prototype?: { getText?: unknown } }).prototype
-          ?.getText !== "function";
-
-      const isPdfParseCtor = (value: unknown): value is PdfParseCtor =>
-        typeof value === "function" &&
-        typeof (value as { prototype?: { getText?: unknown } }).prototype
-          ?.getText === "function";
-
-      const modernParserCtorCandidates: unknown[] = [
-        moduleRecord?.PDFParse,
-        (moduleRecord?.default as Record<string, unknown> | undefined)
-          ?.PDFParse,
-      ];
-
-      const modernParserCtor = modernParserCtorCandidates.find(isPdfParseCtor);
-
-      if (modernParserCtor) {
-        return async (buffer: Buffer): Promise<ParsedPdfData> => {
-          const parser = new modernParserCtor({ data: new Uint8Array(buffer) });
-          try {
-            const result = await parser.getText();
-            return { text: result?.text ?? "" };
-          } finally {
-            await parser.destroy?.();
-          }
-        };
-      }
-
-      const candidates = [
-        moduleRecord?.default,
-        moduleRecord?.pdf,
-        (moduleRecord?.default as Record<string, unknown> | undefined)?.default,
-        pdfParseModule,
-      ];
-
-      const parser = candidates.find(isLegacyFunction) || null;
-
-      if (!parser) {
-        console.warn(
-          "pdf-parse module loaded but no callable export was found",
-          {
-            moduleType: typeof pdfParseModule,
-            moduleKeys: moduleRecord ? Object.keys(moduleRecord) : [],
-          },
-        );
-      }
-
-      return parser;
-    };
-
     try {
-      const pdfParseModule: unknown = await import("pdf-parse");
-      PDFParser = resolvePdfParserFromModule(pdfParseModule);
-      if (PDFParser) {
-        return PDFParser;
-      }
-
-      console.warn("pdf-parse import succeeded but parser was not resolvable");
+      const pdfParseModule = await import("pdf-parse");
+      const fn =
+        typeof pdfParseModule === "function"
+          ? pdfParseModule
+          : typeof pdfParseModule?.default === "function"
+            ? pdfParseModule.default
+            : null;
+      PDFParser = fn as any as PdfParseFunction | null;
     } catch (error) {
       console.warn(
-        "pdf-parse import failed:",
+        "pdf-parse not available:",
         error instanceof Error ? error.message : error,
       );
+      return null;
     }
-
-    try {
-      const requiredModule = require("pdf-parse") as unknown;
-      PDFParser = resolvePdfParserFromModule(requiredModule);
-      if (PDFParser) {
-        return PDFParser;
-      }
-      console.warn("pdf-parse require succeeded but parser was not resolvable");
-    } catch (error) {
-      console.warn(
-        "pdf-parse require failed:",
-        error instanceof Error ? error.message : error,
-      );
-    }
-
-    return null;
   }
   return PDFParser;
 }
