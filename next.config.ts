@@ -6,12 +6,14 @@ const nextConfig: NextConfig = {
     "@sparticuz/chromium",
     "pdf-parse",
     "canvas",
+    "pdfjs-dist",
   ],
   outputFileTracingIncludes: {
-    "/api/ingest": [
+    "/api/ingest/route": [
       "./node_modules/@sparticuz/chromium/bin/**/*",
       "./node_modules/pdf-parse/**/*",
       "./node_modules/canvas/**/*",
+      "./node_modules/pdfjs-dist/**/*",
     ],
   },
 };

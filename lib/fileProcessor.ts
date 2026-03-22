@@ -13,6 +13,35 @@ interface PdfParseCtor {
   new (options: { data: Uint8Array }): PdfParseInstance;
 }
 
+interface PdfJsTextItem {
+  str?: string;
+}
+
+interface PdfJsTextContent {
+  items: PdfJsTextItem[];
+}
+
+interface PdfJsPage {
+  getTextContent: () => Promise<PdfJsTextContent>;
+}
+
+interface PdfJsDocument {
+  numPages: number;
+  getPage: (pageNumber: number) => Promise<PdfJsPage>;
+  destroy: () => Promise<void>;
+}
+
+interface PdfJsLoadingTask {
+  promise: Promise<PdfJsDocument>;
+}
+
+interface PdfJsModuleType {
+  getDocument: (options: {
+    data: Uint8Array;
+    disableWorker?: boolean;
+  }) => PdfJsLoadingTask;
+}
+
 interface XlsxWorkbook {
   SheetNames: string[];
   Sheets: Record<string, unknown>;
@@ -51,6 +80,7 @@ interface ZipContent {
 }
 
 let PDFParser: PdfParseFunction | null = null;
+let PDFJS: PdfJsModuleType | null = null;
 let XLSX: XlsxModuleType | null = null;
 let docxModule: DocxModuleType | null = null;
 
@@ -121,6 +151,80 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
     }
   }
   return PDFParser;
+}
+
+async function getPdfJsParser(): Promise<PdfJsModuleType | null> {
+  if (!PDFJS) {
+    try {
+      const pdfJsModule: unknown = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const moduleRecord =
+        pdfJsModule && typeof pdfJsModule === "object"
+          ? (pdfJsModule as Record<string, unknown>)
+          : null;
+
+      const candidate =
+        (moduleRecord?.default as PdfJsModuleType | undefined) ||
+        (pdfJsModule as PdfJsModuleType);
+
+      if (!candidate || typeof candidate.getDocument !== "function") {
+        console.warn("pdfjs-dist module loaded but getDocument was not found", {
+          moduleType: typeof pdfJsModule,
+          moduleKeys: moduleRecord ? Object.keys(moduleRecord) : [],
+        });
+        return null;
+      }
+
+      PDFJS = candidate;
+    } catch (error) {
+      console.warn(
+        "pdfjs-dist not available:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    }
+  }
+
+  return PDFJS;
+}
+
+async function extractTextWithPdfJs(buffer: Buffer): Promise<string> {
+  const pdfJs = await getPdfJsParser();
+  if (!pdfJs) {
+    throw new Error("PDF fallback parser is not available");
+  }
+
+  let pdfDocument: PdfJsDocument | null = null;
+
+  try {
+    const loadingTask = pdfJs.getDocument({
+      data: new Uint8Array(buffer),
+      disableWorker: true,
+    });
+    pdfDocument = await loadingTask.promise;
+
+    let extracted = "";
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+      const page = await pdfDocument.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item) => item.str || "")
+        .filter(Boolean)
+        .join(" ");
+
+      if (pageText) {
+        extracted += pageText + "\n";
+      }
+    }
+
+    if (!extracted.trim()) {
+      throw new Error("No text content found in PDF (may be image-based)");
+    }
+
+    return extracted.trim();
+  } finally {
+    await pdfDocument?.destroy();
+  }
 }
 
 async function getXLSX(): Promise<XlsxModuleType | null> {
@@ -255,38 +359,37 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
     const parser = await getPDFParser();
-    if (!parser) {
-      throw new Error(
-        "PDF parser not available - pdf-parse module failed to load",
+    const parserErrors: string[] = [];
+
+    if (parser && typeof parser === "function") {
+      try {
+        const pdfData = await parser(buffer);
+        const text = pdfData?.text;
+
+        if (text && text.trim()) {
+          return text.trim();
+        }
+
+        parserErrors.push("pdf-parse returned empty text");
+      } catch (parseError) {
+        parserErrors.push(
+          `pdf-parse failed: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
+        );
+      }
+    } else {
+      parserErrors.push(
+        "pdf-parse module failed to load or had an unexpected export shape",
       );
     }
 
-    if (typeof parser !== "function") {
-      throw new Error(
-        `PDF parser has unexpected type: ${typeof parser}. Expected function.`,
-      );
-    }
-
-    let pdfData: ParsedPdfData | null = null;
     try {
-      pdfData = await parser(buffer);
-    } catch (parseError) {
-      throw new Error(
-        `Failed to parse PDF content: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
+      return await extractTextWithPdfJs(buffer);
+    } catch (fallbackError) {
+      parserErrors.push(
+        `pdfjs-dist fallback failed: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`,
       );
+      throw new Error(parserErrors.join("; "));
     }
-
-    if (!pdfData) {
-      throw new Error("PDF parser returned no data");
-    }
-
-    const text = pdfData.text;
-
-    if (!text || !text.trim()) {
-      throw new Error("No text content found in PDF (may be image-based)");
-    }
-
-    return text.trim();
   } catch (error) {
     throw new Error(
       `Failed to extract text from PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
