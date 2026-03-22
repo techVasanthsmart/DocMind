@@ -49,12 +49,15 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
   if (!PDFParser) {
     try {
       const pdfParseModule = await import("pdf-parse");
+      // pdf-parse 2.4.5+ exports directly as a function, not via .default
       const fn =
         typeof pdfParseModule === "function"
           ? pdfParseModule
-          : typeof pdfParseModule?.default === "function"
-            ? pdfParseModule.default
-            : null;
+          : typeof (pdfParseModule as any)?.default === "function"
+            ? (pdfParseModule as any).default
+            : typeof (pdfParseModule as any)?.pdf === "function"
+              ? (pdfParseModule as any).pdf
+              : null;
       PDFParser = fn as any as PdfParseFunction | null;
     } catch (error) {
       console.warn(
