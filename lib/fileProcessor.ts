@@ -1,4 +1,5 @@
 import { Document } from "@langchain/core/documents";
+import { createRequire } from "node:module";
 
 // Lazy import these to avoid hard dependencies causing build failures
 type ParsedPdfData = { text?: string };
@@ -11,35 +12,6 @@ interface PdfParseInstance {
 
 interface PdfParseCtor {
   new (options: { data: Uint8Array }): PdfParseInstance;
-}
-
-interface PdfJsTextItem {
-  str?: string;
-}
-
-interface PdfJsTextContent {
-  items: PdfJsTextItem[];
-}
-
-interface PdfJsPage {
-  getTextContent: () => Promise<PdfJsTextContent>;
-}
-
-interface PdfJsDocument {
-  numPages: number;
-  getPage: (pageNumber: number) => Promise<PdfJsPage>;
-  destroy: () => Promise<void>;
-}
-
-interface PdfJsLoadingTask {
-  promise: Promise<PdfJsDocument>;
-}
-
-interface PdfJsModuleType {
-  getDocument: (options: {
-    data: Uint8Array;
-    disableWorker?: boolean;
-  }) => PdfJsLoadingTask;
 }
 
 interface XlsxWorkbook {
@@ -80,14 +52,16 @@ interface ZipContent {
 }
 
 let PDFParser: PdfParseFunction | null = null;
-let PDFJS: PdfJsModuleType | null = null;
 let XLSX: XlsxModuleType | null = null;
 let docxModule: DocxModuleType | null = null;
 
 async function getPDFParser(): Promise<PdfParseFunction | null> {
   if (!PDFParser) {
-    try {
-      const pdfParseModule: unknown = await import("pdf-parse");
+    const require = createRequire(import.meta.url);
+
+    const resolvePdfParserFromModule = (
+      pdfParseModule: unknown,
+    ): PdfParseFunction | null => {
       const moduleRecord =
         pdfParseModule && typeof pdfParseModule === "object"
           ? (pdfParseModule as Record<string, unknown>)
@@ -112,7 +86,7 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
       const modernParserCtor = modernParserCtorCandidates.find(isPdfParseCtor);
 
       if (modernParserCtor) {
-        PDFParser = async (buffer: Buffer): Promise<ParsedPdfData> => {
+        return async (buffer: Buffer): Promise<ParsedPdfData> => {
           const parser = new modernParserCtor({ data: new Uint8Array(buffer) });
           try {
             const result = await parser.getText();
@@ -121,7 +95,6 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
             await parser.destroy?.();
           }
         };
-        return PDFParser;
       }
 
       const candidates = [
@@ -131,9 +104,9 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
         pdfParseModule,
       ];
 
-      PDFParser = candidates.find(isLegacyFunction) || null;
+      const parser = candidates.find(isLegacyFunction) || null;
 
-      if (!PDFParser) {
+      if (!parser) {
         console.warn(
           "pdf-parse module loaded but no callable export was found",
           {
@@ -141,6 +114,22 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
             moduleKeys: moduleRecord ? Object.keys(moduleRecord) : [],
           },
         );
+      }
+
+      return parser;
+    };
+
+    try {
+      const pdfParseModule: unknown = await import("pdf-parse");
+      PDFParser = resolvePdfParserFromModule(pdfParseModule);
+      if (PDFParser) {
+        return PDFParser;
+      }
+
+      const requiredModule = require("pdf-parse") as unknown;
+      PDFParser = resolvePdfParserFromModule(requiredModule);
+      if (PDFParser) {
+        return PDFParser;
       }
     } catch (error) {
       console.warn(
@@ -151,80 +140,6 @@ async function getPDFParser(): Promise<PdfParseFunction | null> {
     }
   }
   return PDFParser;
-}
-
-async function getPdfJsParser(): Promise<PdfJsModuleType | null> {
-  if (!PDFJS) {
-    try {
-      const pdfJsModule: unknown = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      const moduleRecord =
-        pdfJsModule && typeof pdfJsModule === "object"
-          ? (pdfJsModule as Record<string, unknown>)
-          : null;
-
-      const candidate =
-        (moduleRecord?.default as PdfJsModuleType | undefined) ||
-        (pdfJsModule as PdfJsModuleType);
-
-      if (!candidate || typeof candidate.getDocument !== "function") {
-        console.warn("pdfjs-dist module loaded but getDocument was not found", {
-          moduleType: typeof pdfJsModule,
-          moduleKeys: moduleRecord ? Object.keys(moduleRecord) : [],
-        });
-        return null;
-      }
-
-      PDFJS = candidate;
-    } catch (error) {
-      console.warn(
-        "pdfjs-dist not available:",
-        error instanceof Error ? error.message : error,
-      );
-      return null;
-    }
-  }
-
-  return PDFJS;
-}
-
-async function extractTextWithPdfJs(buffer: Buffer): Promise<string> {
-  const pdfJs = await getPdfJsParser();
-  if (!pdfJs) {
-    throw new Error("PDF fallback parser is not available");
-  }
-
-  let pdfDocument: PdfJsDocument | null = null;
-
-  try {
-    const loadingTask = pdfJs.getDocument({
-      data: new Uint8Array(buffer),
-      disableWorker: true,
-    });
-    pdfDocument = await loadingTask.promise;
-
-    let extracted = "";
-
-    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
-      const page = await pdfDocument.getPage(pageNumber);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item) => item.str || "")
-        .filter(Boolean)
-        .join(" ");
-
-      if (pageText) {
-        extracted += pageText + "\n";
-      }
-    }
-
-    if (!extracted.trim()) {
-      throw new Error("No text content found in PDF (may be image-based)");
-    }
-
-    return extracted.trim();
-  } finally {
-    await pdfDocument?.destroy();
-  }
 }
 
 async function getXLSX(): Promise<XlsxModuleType | null> {
@@ -276,7 +191,6 @@ async function extractTextFromDocx(buffer: Buffer): Promise<string> {
 
     let text = "";
 
-    // Try to extract text from document body
     if (zip.document.body && zip.document.body.children) {
       for (const child of zip.document.body.children) {
         if (child.children) {
@@ -332,7 +246,6 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
 
       text += `=== Sheet: ${sheetName} ===\n`;
 
-      // Convert sheet to CSV format for text extraction
       try {
         const csv = xlsx.utils.sheet_to_csv(worksheet);
         if (csv && csv.trim()) {
@@ -359,37 +272,38 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
     const parser = await getPDFParser();
-    const parserErrors: string[] = [];
-
-    if (parser && typeof parser === "function") {
-      try {
-        const pdfData = await parser(buffer);
-        const text = pdfData?.text;
-
-        if (text && text.trim()) {
-          return text.trim();
-        }
-
-        parserErrors.push("pdf-parse returned empty text");
-      } catch (parseError) {
-        parserErrors.push(
-          `pdf-parse failed: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
-        );
-      }
-    } else {
-      parserErrors.push(
-        "pdf-parse module failed to load or had an unexpected export shape",
+    if (!parser) {
+      throw new Error(
+        "PDF parser not available - pdf-parse module failed to load",
       );
     }
 
+    if (typeof parser !== "function") {
+      throw new Error(
+        `PDF parser has unexpected type: ${typeof parser}. Expected function.`,
+      );
+    }
+
+    let pdfData: ParsedPdfData | null = null;
     try {
-      return await extractTextWithPdfJs(buffer);
-    } catch (fallbackError) {
-      parserErrors.push(
-        `pdfjs-dist fallback failed: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`,
+      pdfData = await parser(buffer);
+    } catch (parseError) {
+      throw new Error(
+        `Failed to parse PDF content: ${parseError instanceof Error ? parseError.message : "Unknown error"}`,
       );
-      throw new Error(parserErrors.join("; "));
     }
+
+    if (!pdfData) {
+      throw new Error("PDF parser returned no data");
+    }
+
+    const text = pdfData.text;
+
+    if (!text || !text.trim()) {
+      throw new Error("No text content found in PDF (may be image-based)");
+    }
+
+    return text.trim();
   } catch (error) {
     throw new Error(
       `Failed to extract text from PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
