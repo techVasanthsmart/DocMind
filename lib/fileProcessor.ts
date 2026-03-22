@@ -127,7 +127,7 @@ async function extractTextFromPdfUsingPdfjs(buffer: Buffer): Promise<string> {
 
     try {
       const loadingTask = pdfjs.getDocument({
-        data: buffer,
+        data: new Uint8Array(buffer),
         useSystemFonts: true,
       });
 
